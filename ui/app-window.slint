@@ -1,0 +1,95 @@
+import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "Virtual Print Sink";
+    width: 720px;
+    height: 420px;
+
+    in-out property <string> output-path: "";
+    in-out property <string> status-text: "停止中";
+    in-out property <string> last-job-text: "まだ印刷ジョブを受信していません";
+    in-out property <string> endpoint-text: "";
+    in-out property <bool> server-running: false;
+
+    callback start-requested();
+    callback stop-requested();
+    callback choose-output-requested();
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: "Virtual Print Sink";
+            font-size: 26px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: "LPR / IPP の印刷ジョブを受信し、生データをファイルへ保存します。";
+            color: #555555;
+        }
+
+        Rectangle {
+            height: 56px;
+            border-width: 1px;
+            border-color: #c8c8c8;
+            border-radius: 6px;
+            background: #f7f7f7;
+            HorizontalBox {
+                padding: 10px;
+                spacing: 10px;
+                Text { text: "状態:"; vertical-alignment: center; font-weight: 600; }
+                Text { text: root.status-text; vertical-alignment: center; }
+            }
+        }
+
+        HorizontalBox {
+            spacing: 10px;
+            Button {
+                text: "サーバー開始";
+                enabled: !root.server-running;
+                clicked => { root.start-requested(); }
+            }
+            Button {
+                text: "サーバー停止";
+                enabled: root.server-running;
+                clicked => { root.stop-requested(); }
+            }
+        }
+
+        Text { text: "ファイル出力先"; font-weight: 600; }
+        HorizontalBox {
+            spacing: 10px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 42px;
+                border-width: 1px;
+                border-color: #c8c8c8;
+                border-radius: 5px;
+                background: #ffffff;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    text: root.output-path;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            Button {
+                text: "出力先を選択";
+                enabled: !root.server-running;
+                clicked => { root.choose-output-requested(); }
+            }
+        }
+
+        Text { text: "待受エンドポイント"; font-weight: 600; }
+        Text { text: root.endpoint-text; color: #444444; }
+
+        Text { text: "最後に受信したジョブ"; font-weight: 600; }
+        Text { text: root.last-job-text; color: #444444; }
+
+        Rectangle { vertical-stretch: 1; }
+    }
+}
