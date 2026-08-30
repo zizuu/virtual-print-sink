@@ -55,6 +55,11 @@ const TAG_CHARSET: u8 = 0x47;
 const TAG_NATURAL_LANGUAGE: u8 = 0x48;
 const TAG_MIME: u8 = 0x49;
 
+// Keep these values stable. Windows derives the Microsoft IPP Class Driver
+// hardware ID used for PSA association from printer-device-id.
+const PRINTER_DEVICE_ID: &str = "MFG:OpenAI;MDL:Virtual Print Sink;CMD:PDF,POSTSCRIPT,PCL,PWGRASTER,URF;CLS:PRINTER;DES:Virtual Print Sink IPP Printer;";
+const PRINTER_UUID: &str = "urn:uuid:8fddfcaf-d219-4c69-998c-e6a6681b2d11";
+
 #[derive(Clone)]
 struct IppState {
     storage: JobStorage,
@@ -133,7 +138,9 @@ impl ParsedIppRequest {
                 bail!("invalid IPP attribute name length");
             }
             let name = if name_len == 0 {
-                last_name.clone().context("IPP attribute with empty name has no predecessor")?
+                last_name
+                    .clone()
+                    .context("IPP attribute with empty name has no predecessor")?
             } else {
                 let name = String::from_utf8_lossy(&body[index..index + name_len]).into_owned();
                 index += name_len;
@@ -252,7 +259,11 @@ async fn process_ipp_request(state: IppState, body: Bytes) -> Result<Vec<u8>> {
     }
 }
 
-async fn print_job(state: &IppState, request: &ParsedIppRequest, document: &[u8]) -> Result<Vec<u8>> {
+async fn print_job(
+    state: &IppState,
+    request: &ParsedIppRequest,
+    document: &[u8],
+) -> Result<Vec<u8>> {
     let id = state.next_job_id.fetch_add(1, Ordering::Relaxed);
     let name = request
         .get_string("job-name")
@@ -339,7 +350,11 @@ fn create_job(state: &IppState, request: &ParsedIppRequest) -> Result<Vec<u8>> {
     Ok(job_response(request, id, &name, &user, 3, state.ipp_port))
 }
 
-async fn send_document(state: &IppState, request: &ParsedIppRequest, document: &[u8]) -> Result<Vec<u8>> {
+async fn send_document(
+    state: &IppState,
+    request: &ParsedIppRequest,
+    document: &[u8],
+) -> Result<Vec<u8>> {
     let id = request
         .get_i32("job-id")
         .and_then(|id| u32::try_from(id).ok())
@@ -523,19 +538,37 @@ fn printer_attributes_response(request: &ParsedIppRequest, ipp_port: u16) -> Vec
     encoder.attr_strings(TAG_KEYWORD, "uri-authentication-supported", &["none"]);
     encoder.attr_strings(TAG_KEYWORD, "uri-security-supported", &["none"]);
     encoder.attr_string(TAG_NAME, "printer-name", "Virtual Print Sink");
-    encoder.attr_string(TAG_TEXT, "printer-info", "Rust LPR/IPP file capture printer");
+    encoder.attr_string(
+        TAG_TEXT,
+        "printer-info",
+        "Rust LPR/IPP file capture printer",
+    );
     encoder.attr_string(TAG_TEXT, "printer-location", "localhost");
-    encoder.attr_string(TAG_TEXT, "printer-make-and-model", "OpenAI Virtual Print Sink 0.1");
-    encoder.attr_string(TAG_URI, "printer-uuid", "urn:uuid:8fddfcaf-d219-4c69-998c-e6a6681b2d11");
+    encoder.attr_string(
+        TAG_TEXT,
+        "printer-make-and-model",
+        "OpenAI Virtual Print Sink 0.1",
+    );
+    encoder.attr_string(TAG_TEXT, "printer-device-id", PRINTER_DEVICE_ID);
+    encoder.attr_string(TAG_URI, "printer-uuid", PRINTER_UUID);
 
     encoder.attr_enum("printer-state", 3);
     encoder.attr_strings(TAG_KEYWORD, "printer-state-reasons", &["none"]);
     encoder.attr_boolean("printer-is-accepting-jobs", true);
     encoder.attr_integer("queued-job-count", 0);
+    encoder.attr_integer("printer-config-change-time", 0);
+    encoder.attr_integer("printer-up-time", 0);
+    encoder.attr_integer("pages-per-minute", 1);
+    encoder.attr_integer("pages-per-minute-color", 1);
     encoder.attr_boolean("color-supported", true);
 
     encoder.attr_strings(TAG_KEYWORD, "ipp-versions-supported", &["1.1", "2.0"]);
     encoder.attr_strings(TAG_KEYWORD, "ipp-features-supported", &["ipp-everywhere"]);
+    encoder.attr_strings(
+        TAG_KEYWORD,
+        "printer-get-attributes-supported",
+        &["document-format"],
+    );
     encoder.attr_enums(
         "operations-supported",
         &[
@@ -553,9 +586,18 @@ fn printer_attributes_response(request: &ParsedIppRequest, ipp_port: u16) -> Vec
     encoder.attr_string(TAG_CHARSET, "charset-configured", "utf-8");
     encoder.attr_strings(TAG_CHARSET, "charset-supported", &["utf-8"]);
     encoder.attr_string(TAG_NATURAL_LANGUAGE, "natural-language-configured", "en");
-    encoder.attr_strings(TAG_NATURAL_LANGUAGE, "generated-natural-language-supported", &["en"]);
+    encoder.attr_strings(
+        TAG_NATURAL_LANGUAGE,
+        "generated-natural-language-supported",
+        &["en"],
+    );
 
-    encoder.attr_string(TAG_MIME, "document-format-default", "application/octet-stream");
+    encoder.attr_string(
+        TAG_MIME,
+        "document-format-default",
+        "application/octet-stream",
+    );
+    encoder.attr_string(TAG_MIME, "document-format-preferred", "application/pdf");
     encoder.attr_strings(
         TAG_MIME,
         "document-format-supported",
@@ -573,6 +615,22 @@ fn printer_attributes_response(request: &ParsedIppRequest, ipp_port: u16) -> Vec
     encoder.attr_strings(TAG_KEYWORD, "compression-supported", &["none"]);
     encoder.attr_string(TAG_KEYWORD, "pdl-override-supported", "not-attempted");
     encoder.attr_boolean("multiple-document-jobs-supported", false);
+    encoder.attr_boolean("job-ids-supported", true);
+    encoder.attr_strings(
+        TAG_KEYWORD,
+        "which-jobs-supported",
+        &[
+            "completed",
+            "not-completed",
+            "aborted",
+            "all",
+            "canceled",
+            "pending",
+            "pending-held",
+            "processing",
+            "processing-stopped",
+        ],
+    );
 
     encoder.attr_strings(
         TAG_KEYWORD,
@@ -595,6 +653,15 @@ fn printer_attributes_response(request: &ParsedIppRequest, ipp_port: u16) -> Vec
 
     encoder.attr_integer("copies-default", 1);
     encoder.attr_range("copies-supported", 1, 999);
+    encoder.attr_integer("job-priority-default", 50);
+    encoder.attr_integer("job-priority-supported", 100);
+    encoder.attr_range(
+        "job-k-octets-supported",
+        0,
+        (MAX_IPP_BODY_BYTES / 1024) as i32,
+    );
+    encoder.attr_enum("finishings-default", 3);
+    encoder.attr_enums("finishings-supported", &[3]);
 
     encoder.attr_string(TAG_KEYWORD, "media-default", "iso_a4_210x297mm");
     encoder.attr_strings(
@@ -612,6 +679,10 @@ fn printer_attributes_response(request: &ParsedIppRequest, ipp_port: u16) -> Vec
         "media-col-supported",
         &["media-size", "media-source", "media-type"],
     );
+    encoder.attr_string(TAG_KEYWORD, "media-source-default", "auto");
+    encoder.attr_strings(TAG_KEYWORD, "media-source-supported", &["auto"]);
+    encoder.attr_string(TAG_KEYWORD, "media-type-default", "stationery");
+    encoder.attr_strings(TAG_KEYWORD, "media-type-supported", &["stationery"]);
 
     encoder.attr_string(TAG_KEYWORD, "sides-default", "one-sided");
     encoder.attr_strings(
@@ -637,9 +708,19 @@ fn printer_attributes_response(request: &ParsedIppRequest, ipp_port: u16) -> Vec
         "print-scaling-supported",
         &["auto", "auto-fit", "fill", "fit", "none"],
     );
+    encoder.attr_string(TAG_KEYWORD, "print-scaling-default", "auto");
+    encoder.attr_string(TAG_KEYWORD, "print-content-optimize-default", "auto");
+    encoder.attr_strings(
+        TAG_KEYWORD,
+        "print-content-optimize-supported",
+        &["auto", "graphic", "photo", "text", "text-and-graphic"],
+    );
 
     encoder.attr_resolution("printer-resolution-default", 600, 600, 3);
-    encoder.attr_resolutions("printer-resolution-supported", &[(300, 300, 3), (600, 600, 3)]);
+    encoder.attr_resolutions(
+        "printer-resolution-supported",
+        &[(300, 300, 3), (600, 600, 3)],
+    );
     encoder.attr_resolutions(
         "pwg-raster-document-resolution-supported",
         &[(300, 300, 3), (600, 600, 3)],
@@ -684,10 +765,13 @@ fn render_value(tag: u8, value: &[u8]) -> String {
             i32::from_be_bytes([value[0], value[1], value[2], value[3]]).to_string()
         }
         TAG_BOOLEAN if value.len() == 1 => (value[0] != 0).to_string(),
-        TAG_TEXT | TAG_NAME | TAG_KEYWORD | TAG_URI | TAG_CHARSET | TAG_NATURAL_LANGUAGE | TAG_MIME => {
-            String::from_utf8_lossy(value).into_owned()
-        }
-        _ => value.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(""),
+        TAG_TEXT | TAG_NAME | TAG_KEYWORD | TAG_URI | TAG_CHARSET | TAG_NATURAL_LANGUAGE
+        | TAG_MIME => String::from_utf8_lossy(value).into_owned(),
+        _ => value
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(""),
     }
 }
 
@@ -741,16 +825,19 @@ impl IppEncoder {
     fn attr_raw(&mut self, tag: u8, name: &str, value: &[u8]) {
         debug_assert!(self.group_started);
         self.bytes.push(tag);
-        self.bytes.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        self.bytes
+            .extend_from_slice(&(name.len() as u16).to_be_bytes());
         self.bytes.extend_from_slice(name.as_bytes());
-        self.bytes.extend_from_slice(&(value.len() as u16).to_be_bytes());
+        self.bytes
+            .extend_from_slice(&(value.len() as u16).to_be_bytes());
         self.bytes.extend_from_slice(value);
     }
 
     fn attr_raw_continuation(&mut self, tag: u8, value: &[u8]) {
         self.bytes.push(tag);
         self.bytes.extend_from_slice(&0u16.to_be_bytes());
-        self.bytes.extend_from_slice(&(value.len() as u16).to_be_bytes());
+        self.bytes
+            .extend_from_slice(&(value.len() as u16).to_be_bytes());
         self.bytes.extend_from_slice(value);
     }
 
@@ -844,14 +931,16 @@ mod tests {
     #[test]
     fn parses_minimal_get_printer_attributes_request() {
         let body = vec![
-            0x01, 0x01, 0x00, 0x0b, 0, 0, 0, 1,
-            0x01,
-            0x47, 0, 18, b'a', b't', b't', b'r', b'i', b'b', b'u', b't', b'e', b's', b'-', b'c', b'h', b'a', b'r', b's', b'e', b't', 0, 5, b'u', b't', b'f', b'-', b'8',
-            0x03,
+            0x01, 0x01, 0x00, 0x0b, 0, 0, 0, 1, 0x01, 0x47, 0, 18, b'a', b't', b't', b'r', b'i',
+            b'b', b'u', b't', b'e', b's', b'-', b'c', b'h', b'a', b'r', b's', b'e', b't', 0, 5,
+            b'u', b't', b'f', b'-', b'8', 0x03,
         ];
         let req = ParsedIppRequest::parse(&body).unwrap();
         assert_eq!(req.operation, OP_GET_PRINTER_ATTRIBUTES);
-        assert_eq!(req.get_string("attributes-charset").as_deref(), Some("utf-8"));
+        assert_eq!(
+            req.get_string("attributes-charset").as_deref(),
+            Some("utf-8")
+        );
         assert_eq!(req.document_offset, body.len());
     }
 
@@ -868,5 +957,45 @@ mod tests {
         let response = printer_attributes_response(&request, 8631);
         assert_eq!(&response[4..8], &[1, 2, 3, 4]);
         assert_eq!(response.last(), Some(&GROUP_END));
+    }
+
+    #[test]
+    fn printer_attributes_include_stable_psa_identity() {
+        let request = ParsedIppRequest {
+            version_major: 2,
+            version_minor: 0,
+            operation: OP_GET_PRINTER_ATTRIBUTES,
+            request_id: 7,
+            attributes: BTreeMap::new(),
+            document_offset: 0,
+        };
+
+        let response = printer_attributes_response(&request, 8631);
+        let parsed = ParsedIppRequest::parse(&response).unwrap();
+
+        assert_eq!(
+            parsed.get_string("printer-device-id").as_deref(),
+            Some(PRINTER_DEVICE_ID)
+        );
+        assert_eq!(
+            parsed.get_string("printer-uuid").as_deref(),
+            Some(PRINTER_UUID)
+        );
+        assert_eq!(
+            parsed.get_string("document-format-preferred").as_deref(),
+            Some("application/pdf")
+        );
+        assert_eq!(parsed.get_i32("job-priority-supported"), Some(100));
+        assert_eq!(
+            parsed.get_string("print-scaling-default").as_deref(),
+            Some("auto")
+        );
+        assert_eq!(
+            parsed
+                .attributes
+                .get("printer-device-id")
+                .map(|attribute| attribute.tag),
+            Some(TAG_TEXT)
+        );
     }
 }

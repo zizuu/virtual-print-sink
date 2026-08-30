@@ -23,6 +23,7 @@ Rust + Slint で作る、macOS / Windows 向けの仮想印刷受信アプリで
   - Create-Job / Send-Document
   - Get-Printer-Attributes
   - Get-Job-Attributes / Get-Jobs / Cancel-Job
+  - WindowsのPSA関連付けに使用できる固定`printer-device-id` / `printer-uuid`
 - 印刷データ本体 + JSONメタデータを保存
 
 ## ディレクトリ構成
@@ -144,6 +145,8 @@ Add-Printer -IppURL "http://127.0.0.1:8631/printers/virtual"
 Windowsの「設定 > Bluetoothとデバイス > プリンターとスキャナー > デバイスの追加 > 手動で追加」からIPPデバイスとして登録する場合も、必要に応じて完全なURLを指定します。
 
 このMVPは一般的なIPP操作と主要属性を実装していますが、IPP Everywhere/Mopriaの認証を受けた実プリンターを完全にエミュレートするものではありません。Windowsのバージョンや保護印刷モードによって、追加時により厳密な能力問い合わせが行われる場合があります。
+
+PSAの開発テストでは、IPPの`printer-device-id`からWindowsが生成したハードウェアIDを、PSAの拡張INFまたはテスト環境の関連付け設定で使用してください。`printer-device-id`と`printer-uuid`は再起動後も変化しません。
 
 ## WindowsでLPRプリンターとして登録
 
